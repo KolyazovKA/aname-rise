@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use amane::{Bluetooth, Network, Service, TextInput};
+use amane::{Bluetooth, Network, Notification, Service, TextInput};
 
 pub const PASSWORD_INPUT: &str = "wifi-password";
 
@@ -18,6 +18,7 @@ pub enum Popup {
     Wifi,
     Audio,
     Battery,
+    Notifications,
 }
 
 // какое окно открыто и на каком мониторе, плюс мелкое состояние интерфейса
@@ -69,6 +70,7 @@ impl Ui {
         match popup {
             Popup::Wifi => Network::scan(),
             Popup::Bluetooth => Bluetooth::start_scan(),
+            Popup::Notifications => NotificationHistory::mark_seen(),
             _ => {}
         }
     }
@@ -744,4 +746,47 @@ fn find_battery() -> Option<PathBuf> {
     found.sort();
 
     found.into_iter().next()
+}
+
+// ---------------------------------------------------------------- история уведомлений
+
+#[derive(Clone)]
+pub struct NotificationHistoryEntry {
+    pub notification: Notification,
+    pub timestamp: SystemTime,
+}
+
+pub struct NotificationHistory {
+    entries: Vec<NotificationHistoryEntry>,
+}
+
+impl Service for NotificationHistory {
+    fn new() -> Self {
+        Self {
+            entries: Vec::new(),
+        }
+    }
+
+    fn listen() {}
+}
+
+impl NotificationHistory {
+    pub fn push(n: &Notification) {
+        Self::write().entries.push(NotificationHistoryEntry {
+            notification: n.clone(),
+            timestamp: SystemTime::now(),
+        });
+    }
+
+    pub fn list(&self) -> &[NotificationHistoryEntry] {
+        &self.entries
+    }
+
+    pub fn clear() {
+        Self::write().entries.clear();
+    }
+
+    pub fn mark_seen() {
+        // ponytail: пока не используется, зарезервировано для бейджа непрочитанных
+    }
 }

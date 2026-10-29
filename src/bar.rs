@@ -234,6 +234,8 @@ fn right(theme: &Theme, ui: &Ui, monitor: &Monitor, width: f32) -> Row {
         items.push(Box::new(battery));
     }
 
+    items.push(Box::new(notifications(theme, ui, monitor)));
+
     items.push(Box::new(Rectangle::new().width(2.0).height(1.0)));
 
     Row::new(items)
@@ -412,7 +414,7 @@ fn volume(theme: &Theme, ui: &Ui, monitor: &Monitor) -> Rectangle {
     let mut parts = Vec::new();
 
     if audio.muted() {
-        parts.push(Part::Icon("\u{f026}", theme.text));
+        parts.push(Part::Icon("\u{f026}", theme.red));
     } else {
         let icon = if mixer.headphones() {
             "\u{f02cb}"
@@ -444,6 +446,19 @@ fn volume(theme: &Theme, ui: &Ui, monitor: &Monitor) -> Rectangle {
 
         Audio::set_volume((volume + step).clamp(0, 100) as u8);
     })
+}
+
+fn notifications(theme: &Theme, ui: &Ui, monitor: &Monitor) -> Rectangle {
+    let history = crate::state::NotificationHistory::read();
+    let _count = history.list().len();
+
+    chip(
+        theme,
+        ui,
+        Some("notifications"),
+        Some((Popup::Notifications, monitor)),
+        vec![Part::Icon("\u{f0f3}", theme.text)],
+    )
 }
 
 fn battery(theme: &Theme, ui: &Ui, monitor: &Monitor) -> Option<Rectangle> {

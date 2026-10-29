@@ -15,6 +15,7 @@ pub fn size(kind: Popup) -> (f32, f32) {
         Popup::Wifi => (344.0, 460.0),
         Popup::Audio => (368.0, 480.0),
         Popup::Battery => (320.0, 372.0),
+        Popup::Notifications => (344.0, 480.0),
     }
 }
 
@@ -83,6 +84,7 @@ pub fn view(monitor: &Monitor) -> LayerWindow {
             Popup::Wifi => wifi::view(&theme, &ui, width, height),
             Popup::Audio => audio::view(&theme, &ui, width, height),
             Popup::Battery => battery::view(&theme, width, height),
+            Popup::Notifications => crate::notifications::center_view(&theme, &ui, width, height),
         }
     };
 
@@ -98,7 +100,12 @@ pub fn view(monitor: &Monitor) -> LayerWindow {
         .height(height)
         .anchor_vertical(Vertical::Top)
         .anchor_horizontal(horizontal)
-        .margin(Margin { top: 6, right, bottom: 0, left: 0 })
+        .margin(Margin {
+            top: 6,
+            right,
+            bottom: 0,
+            left: 0,
+        })
         .layer(Layer::Overlay)
         .space(Zone::Respect)
         .keyboard(keyboard)
