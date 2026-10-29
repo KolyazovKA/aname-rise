@@ -103,7 +103,11 @@ impl Ui {
     // значение ползунка: то, что тянут сейчас, или настоящее
     pub fn slider_value(&self, key: &str, actual: u8) -> u8 {
         match &self.slider {
-            Some((name, value, when)) if name == key && when.elapsed() < Duration::from_millis(600) => *value,
+            Some((name, value, when))
+                if name == key && when.elapsed() < Duration::from_millis(600) =>
+            {
+                *value
+            }
             _ => actual,
         }
     }
@@ -132,7 +136,11 @@ pub struct Clock {
 
 impl Service for Clock {
     fn new() -> Self {
-        let mut clock = Self { offset: read_offset(), ticks: 0, local: 0 };
+        let mut clock = Self {
+            offset: read_offset(),
+            ticks: 0,
+            local: 0,
+        };
 
         clock.update();
 
@@ -228,7 +236,9 @@ pub struct KbLayout {
 
 impl Service for KbLayout {
     fn new() -> Self {
-        Self { index: read_layout() }
+        Self {
+            index: read_layout(),
+        }
     }
 
     fn listen() {
@@ -352,7 +362,16 @@ fn vpn_up() -> bool {
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().to_string();
 
-        for prefix in ["happ", "xray", "tun", "wg", "tailscale", "ppp", "proton", "nordlynx"] {
+        for prefix in [
+            "happ",
+            "xray",
+            "tun",
+            "wg",
+            "tailscale",
+            "ppp",
+            "proton",
+            "nordlynx",
+        ] {
             if name.starts_with(prefix) {
                 return true;
             }
@@ -420,7 +439,11 @@ impl Mixer {
         let default = amane::output("pactl get-default-sink");
         let streams = parse_streams(&amane::output("LC_ALL=C pactl list sink-inputs"));
 
-        Self { sinks, default, streams }
+        Self {
+            sinks,
+            default,
+            streams,
+        }
     }
 
     // текущее устройство вывода
@@ -433,15 +456,24 @@ impl Mixer {
     }
 
     pub fn headphones(&self) -> bool {
-        let description = self.current().map(|sink| sink.description.to_lowercase()).unwrap_or_default();
+        let description = self
+            .current()
+            .map(|sink| sink.description.to_lowercase())
+            .unwrap_or_default();
 
-        description.contains("headphone") || description.contains("headset") || description.contains("наушник")
+        description.contains("headphone")
+            || description.contains("headset")
+            || description.contains("наушник")
     }
 
     pub fn select(name: &str) {
         let quoted = quote(name);
 
-        let ids: Vec<u32> = Self::read().streams.iter().map(|stream| stream.id).collect();
+        let ids: Vec<u32> = Self::read()
+            .streams
+            .iter()
+            .map(|stream| stream.id)
+            .collect();
 
         let mut command = format!("pactl set-default-sink {quoted}");
 
@@ -478,7 +510,10 @@ fn parse_sinks(text: &str) -> Vec<Sink> {
                 sinks.push(sink);
             }
 
-            current = Some(Sink { name: String::new(), description: String::new() });
+            current = Some(Sink {
+                name: String::new(),
+                description: String::new(),
+            });
 
             continue;
         }
@@ -513,7 +548,11 @@ fn parse_streams(text: &str) -> Vec<Stream> {
     let finish = |stream: Option<Stream>, media: &str, streams: &mut Vec<Stream>| {
         if let Some(mut stream) = stream {
             if stream.name.is_empty() {
-                stream.name = if media.is_empty() { String::from("Stream") } else { media.to_string() };
+                stream.name = if media.is_empty() {
+                    String::from("Stream")
+                } else {
+                    media.to_string()
+                };
             }
 
             streams.push(stream);
@@ -605,7 +644,11 @@ impl Service for BatteryInfo {
     fn new() -> Self {
         let dir = find_battery();
 
-        let mut info = Self { data: BatteryData::default(), dir, ticks: 0 };
+        let mut info = Self {
+            data: BatteryData::default(),
+            dir,
+            ticks: 0,
+        };
 
         info.data = info.snapshot();
         info.data.profile = amane::output("powerprofilesctl get");
@@ -643,8 +686,17 @@ impl BatteryInfo {
             return BatteryData::default();
         };
 
-        let text = |name: &str| fs::read_to_string(dir.join(name)).unwrap_or_default().trim().to_string();
-        let number = |name: &str| fs::read_to_string(dir.join(name)).ok().and_then(|v| v.trim().parse::<f64>().ok());
+        let text = |name: &str| {
+            fs::read_to_string(dir.join(name))
+                .unwrap_or_default()
+                .trim()
+                .to_string()
+        };
+        let number = |name: &str| {
+            fs::read_to_string(dir.join(name))
+                .ok()
+                .and_then(|v| v.trim().parse::<f64>().ok())
+        };
 
         let voltage = number("voltage_now").unwrap_or(0.0);
 
@@ -669,7 +721,9 @@ impl BatteryInfo {
             energy_full: energy("energy_full", "charge_full"),
             energy_design: energy("energy_full_design", "charge_full_design"),
             power,
-            cycles: number("cycle_count").map(|value| value as u32).filter(|value| *value > 0),
+            cycles: number("cycle_count")
+                .map(|value| value as u32)
+                .filter(|value| *value > 0),
             technology: text("technology"),
             model: text("model_name"),
             profile: String::new(),
