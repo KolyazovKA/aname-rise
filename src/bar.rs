@@ -226,7 +226,9 @@ fn right(theme: &Theme, ui: &Ui, monitor: &Monitor, width: f32) -> Row {
         celsius >= 80,
     )));
     items.push(Box::new(bluetooth(theme, ui, monitor)));
-    items.push(Box::new(vpn(theme, ui)));
+    if let Some(v) = vpn(theme, ui) {
+        items.push(Box::new(v));
+    }
     items.push(Box::new(wifi(theme, ui, monitor)));
     items.push(Box::new(volume(theme, ui, monitor)));
 
@@ -376,12 +378,14 @@ fn bluetooth(theme: &Theme, ui: &Ui, monitor: &Monitor) -> Rectangle {
     )
 }
 
-fn vpn(theme: &Theme, ui: &Ui) -> Rectangle {
+fn vpn(theme: &Theme, ui: &Ui) -> Option<Rectangle> {
     let vpn = Vpn::read();
 
-    let color = if vpn.active { theme.green } else { theme.dim };
+    if !vpn.active {
+        return None;
+    }
 
-    chip(theme, ui, None, None, vec![Part::Icon("\u{f0582}", color)])
+    Some(chip(theme, ui, None, None, vec![Part::Icon("\u{f0582}", theme.green)]))
 }
 
 fn wifi(theme: &Theme, ui: &Ui, monitor: &Monitor) -> Rectangle {

@@ -19,7 +19,7 @@ use crate::ui::{bold, label};
 // ---------------------------------------------------------------- константы
 
 const TOAST_WIDTH: f32 = 340.0;
-const TOAST_HEIGHT: f32 = 80.0;
+const TOAST_HEIGHT: f32 = 92.0;
 const TOAST_GAP: f32 = 8.0;
 const TOAST_RADIUS: f32 = 12.0;
 const BORDER_THICKNESS: f32 = 3.0;
@@ -117,9 +117,13 @@ impl ToastState {
             let _ = toast.anim.value();
         }
 
-        // удаляем ушедшие
+        // удаляем ушедшие (dismiss из демона, чтобы не пушились снова)
         self.toasts.retain(|t| {
-            t.phase != Phase::Leaving || now.duration_since(t.phase_start) < LEAVE_DURATION
+            let alive = t.phase != Phase::Leaving || now.duration_since(t.phase_start) < LEAVE_DURATION;
+            if !alive {
+                Notifications::dismiss(t.id);
+            }
+            alive
         });
 
         changed
@@ -232,26 +236,26 @@ fn build_inner(theme: &Theme, toast: &Toast) -> Rectangle {
         let img_path = toast.image.clone();
         Row::new(children![
             Rectangle::new()
-                .width(24.0)
-                .height(24.0)
-                .radius(12.0)
+                .width(32.0)
+                .height(32.0)
+                .radius(16.0)
                 .fill(Image::contain(&img_path)),
             Rectangle::new().width(6.0).height(1.0),
-            bold(&toast.app_name, 11.0, theme.muted),
+            bold(&toast.app_name, 12.0, theme.muted),
         ])
         .gap(0.0)
         .align(Center)
     } else {
-        Row::new(vec![Box::new(bold(&toast.app_name, 11.0, theme.muted))]).align(Center)
+        Row::new(vec![Box::new(bold(&toast.app_name, 12.0, theme.muted))]).align(Center)
     };
 
     let summary = Rectangle::new()
         .width(TOAST_WIDTH - BORDER_THICKNESS * 2.0 - 20.0)
-        .height(16.0)
+        .height(18.0)
         .align_child(Start, Center)
         .child(
             Text::new(&toast.summary)
-                .size(13.0)
+                .size(14.0)
                 .color(theme.text)
                 .weight(Weight::Bold)
                 .elide(),
@@ -262,11 +266,11 @@ fn build_inner(theme: &Theme, toast: &Toast) -> Rectangle {
     } else {
         Rectangle::new()
             .width(TOAST_WIDTH - BORDER_THICKNESS * 2.0 - 20.0)
-            .height(24.0)
+            .height(28.0)
             .align_child(Start, Center)
             .child(
                 Text::new(&toast.body)
-                    .size(12.0)
+                    .size(13.0)
                     .color(theme.muted)
                     .elide(),
             )
@@ -277,6 +281,7 @@ fn build_inner(theme: &Theme, toast: &Toast) -> Rectangle {
         .height(TOAST_HEIGHT - BORDER_THICKNESS * 2.0)
         .radius(TOAST_RADIUS - BORDER_THICKNESS)
         .fill(theme.bg)
+        .translate(BORDER_THICKNESS, BORDER_THICKNESS)
         .padding(amane::Padding {
             top: 8.0,
             right: 10.0,
