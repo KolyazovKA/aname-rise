@@ -351,13 +351,11 @@ fn card_clicked(ssid: &str, secured: bool, saved: bool) {
         return;
     }
 
-    let mut ui = Ui::write();
+    reset_password();
 
+    let mut ui = Ui::write();
     ui.password_for = Some(String::from(ssid));
     ui.show_password = false;
-
-    TextInput::set_text(PASSWORD_INPUT, "");
-    TYPED.take();
 }
 
 fn join(ssid: &str, password: &str) {
@@ -365,12 +363,15 @@ fn join(ssid: &str, password: &str) {
 
     Network::connect(ssid, password);
 
-    let mut ui = Ui::write();
+    reset_password();
 
+    let mut ui = Ui::write();
     ui.joining = Some(String::from(ssid));
     ui.password_for = None;
     ui.show_password = false;
+}
 
+fn reset_password() {
     TextInput::set_text(PASSWORD_INPUT, "");
     TYPED.take();
 }

@@ -109,14 +109,10 @@ pub fn view(monitor: &Monitor) -> LayerWindow {
         .layer(Layer::Overlay)
         .space(Zone::Respect)
         .keyboard(keyboard)
-        .on_key(key_pressed)
+        .on_key(|key: Key| if key == Key::Escape { Ui::close_all() })
         .namespace("popup")
         .visible(open)
         .child(content)
 }
 
-fn key_pressed(key: Key) {
-    if key == Key::Escape {
-        Ui::close_all();
-    }
-}
+

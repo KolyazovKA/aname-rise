@@ -11,7 +11,6 @@ pub const GAP_TOP: i32 = 6;
 pub const GAP_SIDE: i32 = 12;
 pub const HEIGHT: f32 = 35.0;
 pub const WEIGHT: f32 = 1920.0 - 2.0 * GAP_SIDE as f32;
-// pub const WEIGHT: f32 = 1920.0;
 
 const ICON_SIZE: f32 = 16.0;
 const TEXT_SIZE: f32 = 16.0;
@@ -453,9 +452,6 @@ fn volume(theme: &Theme, ui: &Ui, monitor: &Monitor) -> Rectangle {
 }
 
 fn notifications(theme: &Theme, ui: &Ui, monitor: &Monitor) -> Rectangle {
-    let history = crate::state::NotificationHistory::read();
-    let _count = history.list().len();
-
     chip(
         theme,
         ui,

@@ -1,10 +1,9 @@
 // тосты (выезжают справа) + окно центра уведомлений
 use std::collections::HashSet;
-use std::thread;
 use std::time::{Duration, Instant, SystemTime};
 
 use amane::{
-    Animation, Center, Column, Color, Easing, Gradient, Horizontal, Image, Layer, LayerWindow,
+    Animation, Center, Color, Column, Easing, Gradient, Horizontal, Image, Layer, LayerWindow,
     Margin, Monitor, Parent, Pointer, Rectangle, Row, ScrollArea, Service, SpaceBetween, Start,
     Text, Vertical, Weight, Widget, children,
 };
@@ -66,12 +65,6 @@ impl Service for ToastState {
         self.poll()
     }
 
-    fn listen() {
-        loop {
-            thread::sleep(Self::interval());
-            Self::write().poll();
-        }
-    }
 }
 
 impl ToastState {
@@ -119,7 +112,8 @@ impl ToastState {
 
         // удаляем ушедшие (dismiss из демона, чтобы не пушились снова)
         self.toasts.retain(|t| {
-            let alive = t.phase != Phase::Leaving || now.duration_since(t.phase_start) < LEAVE_DURATION;
+            let alive =
+                t.phase != Phase::Leaving || now.duration_since(t.phase_start) < LEAVE_DURATION;
             if !alive {
                 Notifications::dismiss(t.id);
             }
@@ -196,7 +190,12 @@ pub fn toast_view(_monitor: &Monitor) -> LayerWindow {
         .height(if open { state.window_height() } else { 1.0 })
         .anchor_vertical(Vertical::Top)
         .anchor_horizontal(Horizontal::Right)
-        .margin(Margin { top: 8, right: 8, bottom: 0, left: 0 })
+        .margin(Margin {
+            top: 8,
+            right: 8,
+            bottom: 0,
+            left: 0,
+        })
         .layer(Layer::Overlay)
         .namespace("toasts")
         .visible(open)
@@ -214,9 +213,12 @@ fn toast_card(toast: &Toast) -> Rectangle {
     let translate_x = toast.anim.value();
 
     let border_fill = if toast.urgency == amane::Urgency::Critical {
-        Gradient::linear(135.0, [(0.0, Color::from("#fb4934")), (1.0, Color::from("#fb4934"))])
+        Color::from("#fb4934")
     } else {
-        Gradient::linear(135.0, [(0.0, Color::from("#fabd2f")), (1.0, Color::from("#b8bb26"))])
+        Gradient::linear(
+            135.0,
+            [(0.0, Color::from("#fabd2f")), (1.0, Color::from("#b8bb26"))],
+        )
     };
 
     Rectangle::new()
@@ -268,12 +270,7 @@ fn build_inner(theme: &Theme, toast: &Toast) -> Rectangle {
             .width(TOAST_WIDTH - BORDER_THICKNESS * 2.0 - 20.0)
             .height(28.0)
             .align_child(Start, Center)
-            .child(
-                Text::new(&toast.body)
-                    .size(13.0)
-                    .color(theme.muted)
-                    .elide(),
-            )
+            .child(Text::new(&toast.body).size(13.0).color(theme.muted).elide())
     };
 
     let content = Rectangle::new()
@@ -290,25 +287,26 @@ fn build_inner(theme: &Theme, toast: &Toast) -> Rectangle {
         })
         .child(Column::new(children![top_row, summary, body_widget]));
 
-    content
-        .cursor(Pointer)
-        .on_click(move |_| {
-            Notifications::click(id);
-            ToastState::write().dismiss(id);
-        })
+    content.cursor(Pointer).on_click(move |_| {
+        Notifications::click(id);
+        ToastState::write().dismiss(id);
+    })
 }
 
 // ---------------------------------------------------------------- окно центра уведомлений
 
-pub fn center_view(theme: &Theme, _ui: &Ui, width: f32, height: f32) -> Rectangle {
+pub fn center_view(theme: &Theme, ui: &Ui, width: f32, height: f32) -> Rectangle {
     let inner_width = inner(width);
     let history = NotificationHistory::read();
-    let entries = history.list();
+    let entries: Vec<_> = history.list().to_vec();
+    let clearing = history.clearing;
+    let elapsed_ms = history.clear_start.elapsed().as_millis();
+    drop(history);
 
     let head = Row::new(children![
         bold("Уведомления", 16.0, theme.text),
         Rectangle::new().width(1.0).height(1.0),
-        clear_button(theme),
+        clear_button(theme, ui),
     ])
     .justify(SpaceBetween)
     .align(Center)
@@ -333,7 +331,7 @@ pub fn center_view(theme: &Theme, _ui: &Ui, width: f32, height: f32) -> Rectangl
     }
 
     let list_height = height - 26.0 - 28.0 - 10.0;
-    let list = notification_list(theme, entries, inner_width, list_height);
+    let list = notification_list(theme, ui, &entries, inner_width, list_height, clearing, elapsed_ms);
 
     frame(
         theme,
@@ -343,11 +341,15 @@ pub fn center_view(theme: &Theme, _ui: &Ui, width: f32, height: f32) -> Rectangl
     )
 }
 
-fn clear_button(theme: &Theme) -> Rectangle {
+fn clear_button(theme: &Theme, ui: &Ui) -> Rectangle {
     let key = "notif:clear";
-    let hovered = Ui::read().hovered.as_deref() == Some(key);
+    let hovered = ui.hovered.as_deref() == Some(key);
 
-    let fill = if hovered { theme.hover } else { Color::TRANSPARENT };
+    let fill = if hovered {
+        theme.hover
+    } else {
+        Color::TRANSPARENT
+    };
 
     Rectangle::new()
         .width(60.0)
@@ -355,14 +357,7 @@ fn clear_button(theme: &Theme) -> Rectangle {
         .radius(8.0)
         .fill(fill)
         .cursor(Pointer)
-        .on_hover(move |inside| {
-            let mut ui = Ui::write();
-            ui.hovered = if inside {
-                Some(String::from(key))
-            } else {
-                None
-            };
-        })
+        .on_hover(move |inside| Ui::set_hover(key, inside))
         .on_click(|_| {
             Notifications::clear();
             NotificationHistory::clear();
@@ -373,9 +368,12 @@ fn clear_button(theme: &Theme) -> Rectangle {
 
 fn notification_list(
     theme: &Theme,
+    ui: &Ui,
     entries: &[NotificationHistoryEntry],
     width: f32,
     height: f32,
+    clearing: bool,
+    elapsed_ms: u128,
 ) -> Rectangle {
     const CARD_H: f32 = 72.0;
     const GAP: f32 = 6.0;
@@ -383,11 +381,17 @@ fn notification_list(
     let mut cards: Vec<Box<dyn Widget>> = Vec::new();
     let mut total = 0.0;
 
-    for entry in entries.iter().rev() {
+    // считаем translate (чистая функция, не дергает read)
+    let translates: Vec<f32> = (0..entries.len())
+        .map(|i| NotificationHistory::clear_translate(i, clearing, elapsed_ms))
+        .collect();
+
+    for (i, entry) in entries.iter().rev().enumerate() {
         if !cards.is_empty() {
             total += GAP;
         }
-        cards.push(Box::new(notif_card(theme, entry, width)));
+        let index_from_end = entries.len() - 1 - i;
+        cards.push(Box::new(notif_card(theme, ui, entry, width, translates[index_from_end])));
         total += CARD_H;
     }
 
@@ -400,11 +404,11 @@ fn notification_list(
         .child(ScrollArea::new("notif-list", column))
 }
 
-fn notif_card(theme: &Theme, entry: &NotificationHistoryEntry, width: f32) -> Rectangle {
+fn notif_card(theme: &Theme, ui: &Ui, entry: &NotificationHistoryEntry, width: f32, translate_x: f32) -> Rectangle {
     let n = &entry.notification;
     let id = n.id();
     let key = format!("notif:{id}");
-    let hovered = Ui::read().hovered.as_deref() == Some(key.as_str());
+    let hovered = ui.hovered.as_deref() == Some(key.as_str());
 
     let fill = if hovered { theme.hover } else { theme.surface };
     let has_image = !n.image().is_empty();
@@ -448,23 +452,12 @@ fn notif_card(theme: &Theme, entry: &NotificationHistoryEntry, width: f32) -> Re
                 .height(32.0)
                 .radius(8.0)
                 .fill(Image::contain(&img_path)),
-            Rectangle::new()
-                .width(text_width)
-                .height(1.0)
-                .align_child(Start, Center)
-                .child(info),
+            info,
         ])
         .gap(8.0)
         .align(Center)
     } else {
-        Row::new(children![
-            Rectangle::new()
-                .width(text_width)
-                .height(1.0)
-                .align_child(Start, Center)
-                .child(info),
-        ])
-        .align(Center)
+        Row::new(children![info]).align(Center)
     };
 
     let k = key.clone();
@@ -474,6 +467,7 @@ fn notif_card(theme: &Theme, entry: &NotificationHistoryEntry, width: f32) -> Re
         .height(72.0)
         .radius(10.0)
         .fill(fill)
+        .translate(translate_x, 0.0)
         .padding(amane::Padding {
             top: 8.0,
             right: 10.0,
@@ -481,14 +475,7 @@ fn notif_card(theme: &Theme, entry: &NotificationHistoryEntry, width: f32) -> Re
             left: 10.0,
         })
         .cursor(Pointer)
-        .on_hover(move |inside| {
-            let mut ui = Ui::write();
-            if inside {
-                ui.hovered = Some(k.clone());
-            } else if ui.hovered.as_deref() == Some(k.as_str()) {
-                ui.hovered = None;
-            }
-        })
+        .on_hover(move |inside| Ui::set_hover(&k, inside))
         .on_click(move |_| {
             Notifications::dismiss(id);
         })
@@ -510,3 +497,4 @@ fn format_time(ts: &SystemTime) -> String {
         format!("{} мин назад", secs / 60)
     }
 }
+

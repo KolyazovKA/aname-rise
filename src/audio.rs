@@ -61,24 +61,30 @@ pub fn view(theme: &Theme, ui: &Ui, width: f32, height: f32) -> Rectangle {
     let mut parts: Vec<Box<dyn Widget>> = Vec::new();
     let mut total = 0.0;
 
-    add(&mut parts, &mut total, section(theme, "Вывод звука", inner_width), SECTION_HEIGHT);
+    parts.push(Box::new(section(theme, "Вывод звука", inner_width)));
+    total += SECTION_HEIGHT;
 
     if mixer.sinks.is_empty() {
-        add(&mut parts, &mut total, note(theme, "Устройства не найдены", inner_width), 30.0);
+        parts.push(Box::new(note(theme, "Устройства не найдены", inner_width)));
+        total += GAP + 30.0;
     }
 
     for sink in &mixer.sinks {
-        add(&mut parts, &mut total, sink_row(theme, ui, sink, &mixer.default, inner_width), SINK_HEIGHT);
+        total += GAP + SINK_HEIGHT;
+        parts.push(Box::new(sink_row(theme, ui, sink, &mixer.default, inner_width)));
     }
 
-    add(&mut parts, &mut total, section(theme, "Приложения", inner_width), SECTION_HEIGHT + 6.0);
+    total += GAP + SECTION_HEIGHT + 6.0;
+    parts.push(Box::new(section(theme, "Приложения", inner_width)));
 
     if mixer.streams.is_empty() {
-        add(&mut parts, &mut total, note(theme, "Сейчас ничего не играет", inner_width), 30.0);
+        total += GAP + 30.0;
+        parts.push(Box::new(note(theme, "Сейчас ничего не играет", inner_width)));
     }
 
     for stream in &mixer.streams {
-        add(&mut parts, &mut total, app_row(theme, ui, stream, inner_width), APP_HEIGHT);
+        total += GAP + APP_HEIGHT;
+        parts.push(Box::new(app_row(theme, ui, stream, inner_width)));
     }
 
     let body_height = height - 26.0 - 36.0 - 10.0;
@@ -93,16 +99,6 @@ pub fn view(theme: &Theme, ui: &Ui, width: f32, height: f32) -> Rectangle {
         ));
 
     frame(theme, width, height, Column::new(children![master, body]).gap(10.0))
-}
-
-fn add(parts: &mut Vec<Box<dyn Widget>>, total: &mut f32, widget: impl Widget + 'static, height: f32) {
-    if !parts.is_empty() {
-        *total += GAP;
-    }
-
-    *total += height;
-
-    parts.push(Box::new(widget));
 }
 
 fn section(theme: &Theme, title: &str, width: f32) -> Rectangle {

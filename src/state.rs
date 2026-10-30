@@ -70,7 +70,7 @@ impl Ui {
         match popup {
             Popup::Wifi => Network::scan(),
             Popup::Bluetooth => Bluetooth::start_scan(),
-            Popup::Notifications => NotificationHistory::mark_seen(),
+            Popup::Notifications => {}
             _ => {}
         }
     }
@@ -187,21 +187,17 @@ impl Clock {
 // "+0200" -> секунды
 fn read_offset() -> i64 {
     let zone = amane::output("date +%z");
-
     let sign = if zone.starts_with('-') { -1 } else { 1 };
 
-    let digits: Vec<i64> = zone
-        .chars()
-        .filter(char::is_ascii_digit)
-        .filter_map(|c| c.to_digit(10))
-        .map(i64::from)
-        .collect();
-
+    let digits: String = zone.chars().filter(char::is_ascii_digit).collect();
     if digits.len() < 4 {
         return 0;
     }
 
-    sign * ((digits[0] * 10 + digits[1]) * 3600 + (digits[2] * 10 + digits[3]) * 60)
+    let hh: i64 = digits[..2].parse().unwrap_or(0);
+    let mm: i64 = digits[2..4].parse().unwrap_or(0);
+
+    sign * (hh * 3600 + mm * 60)
 }
 
 // дни с 1970-01-01 -> (год, месяц, день)
@@ -605,16 +601,10 @@ fn percent_in(text: &str) -> u8 {
         return 0;
     };
 
-    let digits: String = text[..at]
-        .chars()
-        .rev()
-        .take_while(char::is_ascii_digit)
-        .collect::<Vec<_>>()
-        .into_iter()
-        .rev()
-        .collect();
+    let before = &text[..at];
+    let start = before.rfind(|c: char| !c.is_ascii_digit()).map(|i| i + 1).unwrap_or(0);
 
-    digits.parse::<u32>().unwrap_or(0).min(150) as u8
+    before[start..].parse::<u32>().unwrap_or(0).min(150) as u8
 }
 
 // ---------------------------------------------------------------- батарея
@@ -734,18 +724,13 @@ impl BatteryInfo {
 }
 
 fn find_battery() -> Option<PathBuf> {
-    let mut found: Vec<PathBuf> = fs::read_dir("/sys/class/power_supply")
+    fs::read_dir("/sys/class/power_supply")
         .ok()?
         .flatten()
         .map(|entry| entry.path())
-        .filter(|path| {
+        .find(|path| {
             fs::read_to_string(path.join("type")).is_ok_and(|kind| kind.trim() == "Battery")
         })
-        .collect();
-
-    found.sort();
-
-    found.into_iter().next()
 }
 
 // ---------------------------------------------------------------- история уведомлений
@@ -758,16 +743,36 @@ pub struct NotificationHistoryEntry {
 
 pub struct NotificationHistory {
     entries: Vec<NotificationHistoryEntry>,
+    pub clearing: bool,
+    pub clear_start: Instant,
 }
 
 impl Service for NotificationHistory {
     fn new() -> Self {
         Self {
             entries: Vec::new(),
+            clearing: false,
+            clear_start: Instant::now(),
         }
     }
 
-    fn listen() {}
+    fn interval() -> Duration {
+        Duration::from_millis(50)
+    }
+
+    fn update(&mut self) -> bool {
+        if self.clearing {
+            // после завершения каскадной анимации очищаем список
+            // 400ms анимация + N*100ms задержка
+            let total = 400 + self.entries.len() as u128 * 100;
+            if Instant::now().duration_since(self.clear_start) >= Duration::from_millis(total as u64) {
+                self.entries.clear();
+                self.clearing = false;
+                return true;
+            }
+        }
+        false
+    }
 }
 
 impl NotificationHistory {
@@ -783,10 +788,32 @@ impl NotificationHistory {
     }
 
     pub fn clear() {
-        Self::write().entries.clear();
+        let mut hist = Self::write();
+        if hist.entries.is_empty() {
+            return;
+        }
+        hist.clearing = true;
+        hist.clear_start = Instant::now();
     }
 
-    pub fn mark_seen() {
-        // ponytail: пока не используется, зарезервировано для бейджа непрочитанных
+    /// сдвиг карточки (чистая функция, не дергает read)
+    pub fn clear_translate(index_from_end: usize, clearing: bool, elapsed_ms: u128) -> f32 {
+        if !clearing {
+            return 0.0;
+        }
+        let delay = index_from_end as u128 * 100;
+        let anim_time = elapsed_ms.saturating_sub(delay);
+        if anim_time == 0 {
+            return 0.0;
+        }
+        let duration = 400;
+        let t = (anim_time as f32 / duration as f32).min(1.0);
+        let eased = if t < 0.5 {
+            2.0 * t * t
+        } else {
+            1.0 - (-2.0 * t + 2.0).powi(2) / 2.0
+        };
+        340.0 * eased
     }
+
 }
