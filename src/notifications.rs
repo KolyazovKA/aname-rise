@@ -64,7 +64,6 @@ impl Service for ToastState {
     fn update(&mut self) -> bool {
         self.poll()
     }
-
 }
 
 impl ToastState {
@@ -191,7 +190,7 @@ pub fn toast_view(_monitor: &Monitor) -> LayerWindow {
         .anchor_vertical(Vertical::Top)
         .anchor_horizontal(Horizontal::Right)
         .margin(Margin {
-            top: 8,
+            top: 12,
             right: 8,
             bottom: 0,
             left: 0,
@@ -331,7 +330,15 @@ pub fn center_view(theme: &Theme, ui: &Ui, width: f32, height: f32) -> Rectangle
     }
 
     let list_height = height - 26.0 - 28.0 - 10.0;
-    let list = notification_list(theme, ui, &entries, inner_width, list_height, clearing, elapsed_ms);
+    let list = notification_list(
+        theme,
+        ui,
+        &entries,
+        inner_width,
+        list_height,
+        clearing,
+        elapsed_ms,
+    );
 
     frame(
         theme,
@@ -391,7 +398,13 @@ fn notification_list(
             total += GAP;
         }
         let index_from_end = entries.len() - 1 - i;
-        cards.push(Box::new(notif_card(theme, ui, entry, width, translates[index_from_end])));
+        cards.push(Box::new(notif_card(
+            theme,
+            ui,
+            entry,
+            width,
+            translates[index_from_end],
+        )));
         total += CARD_H;
     }
 
@@ -404,7 +417,13 @@ fn notification_list(
         .child(ScrollArea::new("notif-list", column))
 }
 
-fn notif_card(theme: &Theme, ui: &Ui, entry: &NotificationHistoryEntry, width: f32, translate_x: f32) -> Rectangle {
+fn notif_card(
+    theme: &Theme,
+    ui: &Ui,
+    entry: &NotificationHistoryEntry,
+    width: f32,
+    translate_x: f32,
+) -> Rectangle {
     let n = &entry.notification;
     let id = n.id();
     let key = format!("notif:{id}");
@@ -497,4 +516,3 @@ fn format_time(ts: &SystemTime) -> String {
         format!("{} мин назад", secs / 60)
     }
 }
-
