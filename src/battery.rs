@@ -1,4 +1,7 @@
-use amane::{Battery, Center, Column, End, Rectangle, Row, Service, SpaceBetween, Start, Text, Widget, children};
+use amane::{
+    Battery, Center, Column, End, Rectangle, Row, Service, SpaceBetween, Start, Text, Widget,
+    children,
+};
 
 use crate::popup::{frame, inner};
 use crate::state::BatteryInfo;
@@ -31,15 +34,21 @@ pub fn view(theme: &Theme, width: f32, height: f32) -> Rectangle {
 
     let color = if charging || full {
         theme.green
-    } else if percent <= 15 {
+    } else if percent <= 50 {
         theme.red
-    } else if percent <= 30 {
+    } else if percent <= 70 {
         theme.yellow
     } else {
-        theme.accent
+        theme.green
     };
 
-    let glyph = if charging { "\u{f0084}" } else if full { "\u{f0079}" } else { "\u{f0081}" };
+    let glyph = if charging {
+        "\u{f0084}"
+    } else if full {
+        "\u{f0079}"
+    } else {
+        "\u{f0081}"
+    };
 
     let status = match data.status.as_str() {
         "Charging" => "Заряжается",
@@ -67,21 +76,42 @@ pub fn view(theme: &Theme, width: f32, height: f32) -> Rectangle {
         .height(10.0)
         .radius(5.0)
         .fill(theme.border)
-        .child(Rectangle::new().width(filled.max(0.5)).height(10.0).radius(5.0).fill(color));
+        .child(
+            Rectangle::new()
+                .width(filled.max(0.5))
+                .height(10.0)
+                .radius(5.0)
+                .fill(color),
+        );
 
     let mut rows: Vec<Box<dyn Widget>> = Vec::new();
 
     // время до разряда или до полной зарядки
     if data.power > 0.5 {
         if charging && data.energy_full > data.energy_now {
-            rows.push(Box::new(row(theme, "До полной зарядки", format_hours((data.energy_full - data.energy_now) / data.power), inner_width)));
+            rows.push(Box::new(row(
+                theme,
+                "До полной зарядки",
+                format_hours((data.energy_full - data.energy_now) / data.power),
+                inner_width,
+            )));
         } else if !charging && !full {
-            rows.push(Box::new(row(theme, "Осталось", format_hours(data.energy_now / data.power), inner_width)));
+            rows.push(Box::new(row(
+                theme,
+                "Осталось",
+                format_hours(data.energy_now / data.power),
+                inner_width,
+            )));
         }
     }
 
     if data.power > 0.05 {
-        rows.push(Box::new(row(theme, "Мощность", format!("{:.1} Вт", data.power), inner_width)));
+        rows.push(Box::new(row(
+            theme,
+            "Мощность",
+            format!("{:.1} Вт", data.power),
+            inner_width,
+        )));
     }
 
     if data.energy_full > 0.0 {
@@ -96,19 +126,39 @@ pub fn view(theme: &Theme, width: f32, height: f32) -> Rectangle {
     if data.energy_design > 0.0 && data.energy_full > 0.0 {
         let health = data.energy_full / data.energy_design * 100.0;
 
-        rows.push(Box::new(row(theme, "Состояние батареи", format!("{health:.0}%"), inner_width)));
+        rows.push(Box::new(row(
+            theme,
+            "Состояние батареи",
+            format!("{health:.0}%"),
+            inner_width,
+        )));
     }
 
     if let Some(cycles) = data.cycles {
-        rows.push(Box::new(row(theme, "Циклов зарядки", cycles.to_string(), inner_width)));
+        rows.push(Box::new(row(
+            theme,
+            "Циклов зарядки",
+            cycles.to_string(),
+            inner_width,
+        )));
     }
 
     if !data.technology.is_empty() {
-        rows.push(Box::new(row(theme, "Технология", data.technology.clone(), inner_width)));
+        rows.push(Box::new(row(
+            theme,
+            "Технология",
+            data.technology.clone(),
+            inner_width,
+        )));
     }
 
     if !data.model.is_empty() {
-        rows.push(Box::new(row(theme, "Модель", data.model.clone(), inner_width)));
+        rows.push(Box::new(row(
+            theme,
+            "Модель",
+            data.model.clone(),
+            inner_width,
+        )));
     }
 
     let profile = match data.profile.as_str() {
@@ -120,12 +170,22 @@ pub fn view(theme: &Theme, width: f32, height: f32) -> Rectangle {
     };
 
     if !profile.is_empty() {
-        rows.push(Box::new(row(theme, "Профиль питания", profile.to_string(), inner_width)));
+        rows.push(Box::new(row(
+            theme,
+            "Профиль питания",
+            profile.to_string(),
+            inner_width,
+        )));
     }
 
     let details = Column::new(rows).gap(4.0);
 
-    frame(theme, width, height, Column::new(children![top, bar, details]).gap(14.0))
+    frame(
+        theme,
+        width,
+        height,
+        Column::new(children![top, bar, details]).gap(14.0),
+    )
 }
 
 // «название — значение», длинное значение обрезается
@@ -142,7 +202,11 @@ fn row(theme: &Theme, name: &str, value: String, width: f32) -> Row {
         .align_child(End, Center)
         .child(Text::new(value).size(13.0).color(theme.text).elide());
 
-    Row::new(children![name, value]).width(width).gap(8.0).justify(SpaceBetween).align(Center)
+    Row::new(children![name, value])
+        .width(width)
+        .gap(8.0)
+        .justify(SpaceBetween)
+        .align(Center)
 }
 
 fn format_hours(hours: f64) -> String {
@@ -154,4 +218,3 @@ fn format_hours(hours: f64) -> String {
         format!("{minutes} мин")
     }
 }
-

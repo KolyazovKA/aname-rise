@@ -251,7 +251,12 @@ fn password_row(theme: &Theme, ui: &Ui, ssid: &str, width: f32) -> Row {
         .placeholder("Пароль")
         .focused()
         .on_change(|password| TYPED.set(password))
-        .on_submit(move |password| join(&name, &password));
+        .on_submit(move |password| {
+            if password.is_empty() {
+                return;
+            }
+            join(&name, &password);
+        });
 
     if !ui.show_password {
         input = input.password();
@@ -298,7 +303,13 @@ fn password_row(theme: &Theme, ui: &Ui, ssid: &str, width: f32) -> Row {
     let name = String::from(ssid);
 
     let confirm = small_button(theme, ui, "wifi:join", "\u{f012c}", theme.green, theme.green)
-        .on_click(move |_| join(&name, &TYPED.take()));
+        .on_click(move |_| {
+            let password = TYPED.take();
+            if password.is_empty() {
+                return;
+            }
+            join(&name, &password);
+        });
 
     Row::new(children![field, cancel, confirm]).gap(7.0).align(Center)
 }

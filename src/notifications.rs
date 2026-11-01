@@ -1,6 +1,6 @@
 // тосты (выезжают справа) + окно центра уведомлений
 use std::collections::HashSet;
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, Instant};
 
 use amane::{
     Animation, Center, Color, Column, Easing, Gradient, Horizontal, Image, Layer, LayerWindow,
@@ -11,7 +11,9 @@ use amane::{
 use amane::Notifications;
 
 use crate::popup::{frame, inner};
-use crate::state::{NotificationHistory, NotificationHistoryEntry, Ui};
+use crate::state::{
+    Clock, NotificationHistory, NotificationHistoryEntry, Ui, format_notification_time,
+};
 use crate::theme::Theme;
 use crate::ui::{bold, label};
 
@@ -212,7 +214,10 @@ fn toast_card(toast: &Toast) -> Rectangle {
     let translate_x = toast.anim.value();
 
     let border_fill = if toast.urgency == amane::Urgency::Critical {
-        Color::from("#fb4934")
+        Gradient::linear(
+            0.0,
+            [(0.0, Color::from("#fb4934")), (1.0, Color::from("#fb4934"))],
+        )
     } else {
         Gradient::linear(
             135.0,
@@ -432,7 +437,7 @@ fn notif_card(
     let fill = if hovered { theme.hover } else { theme.surface };
     let has_image = !n.image().is_empty();
 
-    let time_str = format_time(&entry.timestamp);
+    let time_str = format_notification_time(entry.timestamp, Clock::read().offset());
     let text_width = width - 20.0 - if has_image { 32.0 + 8.0 } else { 0.0 };
 
     let top_line = Row::new(children![
@@ -499,20 +504,4 @@ fn notif_card(
             Notifications::dismiss(id);
         })
         .child(row)
-}
-
-fn format_time(ts: &SystemTime) -> String {
-    let dur = ts
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap_or_default();
-    let secs = dur.as_secs();
-    let mins = secs / 60;
-    let hrs = mins / 60;
-    let mins = mins % 60;
-
-    if hrs > 0 {
-        format!("{:02}:{:02}", hrs, mins)
-    } else {
-        format!("{} мин назад", secs / 60)
-    }
 }

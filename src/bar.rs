@@ -10,10 +10,11 @@ use crate::theme::{Theme, theme};
 pub const GAP_TOP: i32 = 6;
 pub const GAP_SIDE: i32 = 12;
 pub const HEIGHT: f32 = 35.0;
-pub const WEIGHT: f32 = 1920.0 - 2.0 * GAP_SIDE as f32;
 
 const ICON_SIZE: f32 = 16.0;
 const TEXT_SIZE: f32 = 16.0;
+const WS_ICON_SIZE_INACTIVE: f32 = 13.0;
+const WS_ICON_SIZE_ACTIVE: f32 = 20.0;
 
 // иконки рабочих столов из waybar: "1".."9"
 const WORKSPACE_ICONS: [&str; 9] = [
@@ -46,7 +47,7 @@ pub fn view(monitor: &Monitor) -> LayerWindow {
     ]);
 
     LayerWindow::new()
-        .width(WEIGHT)
+        .width(bar_width as f32)
         .height(HEIGHT)
         .anchor_vertical(Vertical::Top)
         .margin(Margin {
@@ -126,6 +127,12 @@ fn workspace_button(theme: &Theme, ui: &Ui, workspace: &Workspace) -> Rectangle 
         theme.text
     };
 
+    let icon_size = if workspace.focused() || workspace.active() {
+        WS_ICON_SIZE_ACTIVE
+    } else {
+        WS_ICON_SIZE_INACTIVE
+    };
+
     Rectangle::new()
         .width(34.0)
         .height(24.0)
@@ -135,7 +142,7 @@ fn workspace_button(theme: &Theme, ui: &Ui, workspace: &Workspace) -> Rectangle 
         .on_hover(move |inside| Ui::set_hover(&key, inside))
         .on_click(move |_| Workspaces::focus(id))
         .align_child(Center, Center)
-        .child(Text::new(glyph).size(ICON_SIZE).color(color).tight())
+        .child(Text::new(glyph).size(icon_size).color(color).tight())
 }
 
 // ---------------------------------------------------------------- центр: время
@@ -335,7 +342,6 @@ fn layout(theme: &Theme) -> Rectangle {
     Rectangle::new()
         .width(30.0)
         .height(24.0)
-        .cursor(Pointer)
         .align_child(Center, Center)
         .child(Text::new(language).size(ICON_SIZE).color(theme.text))
 }
@@ -384,7 +390,13 @@ fn vpn(theme: &Theme, ui: &Ui) -> Option<Rectangle> {
         return None;
     }
 
-    Some(chip(theme, ui, None, None, vec![Part::Icon("\u{f0582}", theme.green)]))
+    Some(chip(
+        theme,
+        ui,
+        None,
+        None,
+        vec![Part::Icon("\u{f0582}", theme.green)],
+    ))
 }
 
 fn wifi(theme: &Theme, ui: &Ui, monitor: &Monitor) -> Rectangle {
@@ -487,13 +499,13 @@ fn battery(theme: &Theme, ui: &Ui, monitor: &Monitor) -> Option<Rectangle> {
     };
 
     let color = if charging {
-        theme.text
-    } else if percent <= 15 {
+        theme.green
+    } else if percent <= 50 {
         theme.red
-    } else if percent <= 30 {
+    } else if percent <= 70 {
         theme.yellow
     } else {
-        theme.text
+        theme.green
     };
 
     Some(chip(

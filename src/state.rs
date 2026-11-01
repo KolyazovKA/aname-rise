@@ -70,7 +70,6 @@ impl Ui {
         match popup {
             Popup::Wifi => Network::scan(),
             Popup::Bluetooth => Bluetooth::start_scan(),
-            Popup::Notifications => {}
             _ => {}
         }
     }
@@ -128,7 +127,7 @@ impl Ui {
 
 // ---------------------------------------------------------------- время
 
-const DAY: i64 = 86_400;
+pub const DAY: i64 = 86_400;
 
 pub struct Clock {
     offset: i64,
@@ -182,6 +181,35 @@ impl Clock {
     pub fn today(&self) -> (i64, i64, i64) {
         civil(self.local.div_euclid(DAY))
     }
+
+    pub fn offset(&self) -> i64 {
+        self.offset
+    }
+}
+
+// Форматирование времени уведомления: «N мин назад» или HH:MM
+pub fn format_notification_time(ts: SystemTime, offset: i64) -> String {
+    let ts_secs = ts
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+    let now_secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+    let diff = (now_secs + offset).saturating_sub(ts_secs + offset);
+
+    if diff < 60 {
+        return "только что".to_string();
+    }
+    if diff < 3600 {
+        return format!("{} мин назад", diff / 60);
+    }
+
+    // Показываем HH:MM времени уведомления с учётом часового пояса
+    let local_ts = ts_secs + offset;
+    let today_secs = local_ts.rem_euclid(DAY);
+    format!("{:02}:{:02}", today_secs / 3600, today_secs % 3600 / 60)
 }
 
 // "+0200" -> секунды
@@ -363,7 +391,6 @@ fn vpn_up() -> bool {
         for prefix in [
             "happ",
             "xray",
-            "tun",
             "wg",
             "tailscale",
             "ppp",
@@ -373,6 +400,10 @@ fn vpn_up() -> bool {
             if name.starts_with(prefix) {
                 return true;
             }
+        }
+        // tun0 — VPN; tunl0 — IPIP-туннель ядра (Docker/K8s), не VPN
+        if name.starts_with("tun") && !name.starts_with("tunl") {
+            return true;
         }
     }
 
@@ -741,6 +772,8 @@ pub struct NotificationHistoryEntry {
     pub timestamp: SystemTime,
 }
 
+const NOTIF_HISTORY_MAX: usize = 100;
+
 pub struct NotificationHistory {
     entries: Vec<NotificationHistoryEntry>,
     pub clearing: bool,
@@ -777,7 +810,11 @@ impl Service for NotificationHistory {
 
 impl NotificationHistory {
     pub fn push(n: &Notification) {
-        Self::write().entries.push(NotificationHistoryEntry {
+        let mut hist = Self::write();
+        if hist.entries.len() >= NOTIF_HISTORY_MAX {
+            hist.entries.remove(0);
+        }
+        hist.entries.push(NotificationHistoryEntry {
             notification: n.clone(),
             timestamp: SystemTime::now(),
         });
