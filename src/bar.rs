@@ -13,8 +13,8 @@ pub const HEIGHT: f32 = 35.0;
 
 const ICON_SIZE: f32 = 16.0;
 const TEXT_SIZE: f32 = 16.0;
-const WS_ICON_SIZE_INACTIVE: f32 = 13.0;
-const WS_ICON_SIZE_ACTIVE: f32 = 20.0;
+const WS_ICON_SIZE_INACTIVE: f32 = 16.0;
+const WS_ICON_SIZE_ACTIVE: f32 = 16.0;
 
 // иконки рабочих столов из waybar: "1".."9"
 const WORKSPACE_ICONS: [&str; 9] = [
@@ -499,13 +499,13 @@ fn battery(theme: &Theme, ui: &Ui, monitor: &Monitor) -> Option<Rectangle> {
     };
 
     let color = if charging {
-        theme.green
+        theme.text
     } else if percent <= 50 {
         theme.red
     } else if percent <= 70 {
         theme.yellow
     } else {
-        theme.green
+        theme.text
     };
 
     Some(chip(

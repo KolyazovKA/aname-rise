@@ -5,7 +5,7 @@ use amane::{
 
 use crate::state::{Popup, Ui};
 use crate::theme::{Theme, theme};
-use crate::{audio, battery, bluetooth, calendar, wifi};
+use crate::{audio, battery, bluetooth, calendar, clipboard, wifi};
 
 // ширина и высота окна
 pub fn size(kind: Popup) -> (f32, f32) {
@@ -16,6 +16,7 @@ pub fn size(kind: Popup) -> (f32, f32) {
         Popup::Audio => (368.0, 480.0),
         Popup::Battery => (320.0, 372.0),
         Popup::Notifications => (344.0, 480.0),
+        Popup::Clipboard => clipboard::SIZE,
     }
 }
 
@@ -66,8 +67,10 @@ pub fn view(monitor: &Monitor) -> LayerWindow {
 
     let (width, height) = size(kind);
 
-    // пока вводят пароль, окно забирает клавиатуру целиком
-    let keyboard = if open && kind == Popup::Wifi && ui.password_for.is_some() {
+    // пока вводят пароль или ищут в буфере, окно забирает клавиатуру целиком
+    let typing = (kind == Popup::Wifi && ui.password_for.is_some()) || kind == Popup::Clipboard;
+
+    let keyboard = if open && typing {
         Keyboard::Exclusive
     } else if open {
         Keyboard::OnDemand
@@ -85,11 +88,12 @@ pub fn view(monitor: &Monitor) -> LayerWindow {
             Popup::Audio => audio::view(&theme, &ui, width, height),
             Popup::Battery => battery::view(&theme, width, height),
             Popup::Notifications => crate::notifications::center_view(&theme, &ui, width, height),
+            Popup::Clipboard => clipboard::view(&theme, &ui, width, height),
         }
     };
 
-    // календарь под временем, остальные у правого края, под своими значками
-    let (horizontal, right) = if kind == Popup::Calendar {
+    // календарь и буфер по центру, остальные у правого края, под своими значками
+    let (horizontal, right) = if kind == Popup::Calendar || kind == Popup::Clipboard {
         (Horizontal::Middle, 0)
     } else {
         (Horizontal::Right, 8)
@@ -109,7 +113,13 @@ pub fn view(monitor: &Monitor) -> LayerWindow {
         .layer(Layer::Overlay)
         .space(Zone::Respect)
         .keyboard(keyboard)
-        .on_key(|key: Key| if key == Key::Escape { Ui::close_all() })
+        .on_key(|key: Key| match key {
+            Key::Escape => Ui::close_all(),
+            // имена Key::Up и Key::Down сверить с SDK
+            Key::Up => Ui::clip_move(-1),
+            Key::Down => Ui::clip_move(1),
+            _ => {}
+        })
         .namespace("popup")
         .visible(open)
         .child(content)

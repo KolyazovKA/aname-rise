@@ -1,13 +1,18 @@
 // сервисы: всё, что бар и окна читают через `Service::read()`
 use std::fs;
+use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
+use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use amane::{Bluetooth, Network, Notification, Service, TextInput};
 
+use crate::clip_store::Store;
+
 pub const PASSWORD_INPUT: &str = "wifi-password";
+pub const CLIPBOARD_INPUT: &str = "clipboard-search";
 
 // ---------------------------------------------------------------- окна
 
@@ -19,6 +24,7 @@ pub enum Popup {
     Audio,
     Battery,
     Notifications,
+    Clipboard,
 }
 
 // какое окно открыто и на каком мониторе, плюс мелкое состояние интерфейса
@@ -33,6 +39,10 @@ pub struct Ui {
     pub joining: Option<String>,
     // ползунок, который сейчас тянут: ключ, значение, когда
     pub slider: Option<(String, u8, Instant)>,
+    // буфер обмена: запрос поиска, выбранная строка среди найденных, первая видимая строка
+    pub clip_query: String,
+    pub clip_selected: usize,
+    pub clip_top: usize,
 }
 
 impl Service for Ui {
@@ -46,6 +56,9 @@ impl Service for Ui {
             show_password: false,
             joining: None,
             slider: None,
+            clip_query: String::new(),
+            clip_selected: 0,
+            clip_top: 0,
         }
     }
 
@@ -88,7 +101,12 @@ impl Ui {
         self.password_for = None;
         self.show_password = false;
 
+        self.clip_query.clear();
+        self.clip_selected = 0;
+        self.clip_top = 0;
+
         TextInput::set_text(PASSWORD_INPUT, "");
+        TextInput::set_text(CLIPBOARD_INPUT, "");
     }
 
     pub fn set_hover(key: &str, inside: bool) {
@@ -98,6 +116,40 @@ impl Ui {
             ui.hovered = Some(key.to_string());
         } else if ui.hovered.as_deref() == Some(key) {
             ui.hovered = None;
+        }
+    }
+
+    // новый запрос поиска: выбор и прокрутка возвращаются к началу списка
+    pub fn clip_set_query(query: &str) {
+        let mut ui = Self::write();
+
+        ui.clip_query = query.to_string();
+        ui.clip_selected = 0;
+        ui.clip_top = 0;
+    }
+
+    // стрелки и колесо мыши: сдвиг выбора, видимое окно списка едет следом
+    pub fn clip_move(delta: isize) {
+        let mut ui = Self::write();
+
+        if ui.popup != Some(Popup::Clipboard) {
+            return;
+        }
+
+        let count = ClipboardHistory::read().matches(&ui.clip_query).len();
+
+        if count == 0 {
+            return;
+        }
+
+        let next = (ui.clip_selected as isize + delta).clamp(0, count as isize - 1) as usize;
+
+        ui.clip_selected = next;
+
+        if next < ui.clip_top {
+            ui.clip_top = next;
+        } else if next >= ui.clip_top + crate::clipboard::ROWS {
+            ui.clip_top = next + 1 - crate::clipboard::ROWS;
         }
     }
 
@@ -853,4 +905,110 @@ impl NotificationHistory {
         340.0 * eased
     }
 
+}
+
+// ---------------------------------------------------------------- буфер обмена
+
+pub struct ClipboardHistory {
+    store: Store,
+}
+
+impl Service for ClipboardHistory {
+    fn new() -> Self {
+        Self { store: Store::new() }
+    }
+
+    fn listen() {
+        // wl-paste --watch печатает строку при каждом изменении буфера;
+        // если он завершился, поднимаем его снова
+        loop {
+            if let Ok(mut child) = Command::new("wl-paste")
+                .args(["--type", "text", "--watch", "echo"])
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .spawn()
+            {
+                if let Some(stdout) = child.stdout.take() {
+                    for _ in BufReader::new(stdout).lines().map_while(Result::ok) {
+                        capture();
+                    }
+                }
+
+                let _ = child.wait();
+            }
+
+            thread::sleep(Duration::from_secs(2));
+        }
+    }
+}
+
+// читает текущее содержимое буфера и кладёт в историю
+fn capture() {
+    // менеджеры паролей помечают такие записи, их в историю не берём
+    let secret = run("wl-paste", &["--list-types"])
+        .is_some_and(|types| types.contains("x-kde-passwordManagerHint"));
+
+    if secret {
+        return;
+    }
+
+    // картинки и прочее не текст: команда завершится ошибкой, запись пропускается
+    if let Some(text) = run("wl-paste", &["--no-newline", "--type", "text"]) {
+        ClipboardHistory::write().store.push(&text);
+    }
+}
+
+fn run(program: &str, args: &[&str]) -> Option<String> {
+    let output = Command::new(program).args(args).output().ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    String::from_utf8(output.stdout).ok()
+}
+
+impl ClipboardHistory {
+    // записи, подходящие под запрос, новые первыми
+    pub fn matches(&self, query: &str) -> Vec<&str> {
+        self.store.filter(query)
+    }
+
+    // строка списка под номером index (среди найденных по текущему запросу)
+    pub fn pick(index: usize) {
+        let query = Ui::read().clip_query.clone();
+
+        let text = Self::read().matches(&query).get(index).map(|text| text.to_string());
+
+        if let Some(text) = text {
+            copy(text.clone());
+
+            // выбранное поднимается на первое место
+            Self::write().store.push(&text);
+
+            Ui::close_all();
+        }
+    }
+
+    // Enter в поле поиска
+    pub fn pick_selected() {
+        let selected = Ui::read().clip_selected;
+
+        Self::pick(selected);
+    }
+}
+
+// wl-copy читает текст из stdin, а не из аргументов: так он не виден в `ps`
+fn copy(text: String) {
+    thread::spawn(move || {
+        let child = Command::new("wl-copy").stdin(Stdio::piped()).spawn();
+
+        if let Ok(mut child) = child {
+            if let Some(mut stdin) = child.stdin.take() {
+                let _ = stdin.write_all(text.as_bytes());
+            }
+
+            let _ = child.wait();
+        }
+    });
 }
