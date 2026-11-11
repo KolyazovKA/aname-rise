@@ -314,6 +314,11 @@ pub fn center_view(theme: &Theme, ui: &Ui, width: f32, height: f32) -> Rectangle
     let elapsed_ms = history.clear_start.elapsed().as_millis();
     drop(history);
 
+    // каскад считается по времени: без кадров окно замирает на всю очистку
+    if clearing {
+        amane::request_frame();
+    }
+
     let head = Row::new(children![
         bold("Уведомления", 16.0, theme.text),
         Rectangle::new().width(1.0).height(1.0),
