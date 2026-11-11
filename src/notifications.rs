@@ -20,6 +20,8 @@ use crate::ui::{bold, label};
 // ---------------------------------------------------------------- константы
 
 const TOAST_WIDTH: f32 = 340.0;
+// окно шире карточки: анимация уводит её за край целиком
+const TOAST_WINDOW_WIDTH: f32 = TOAST_WIDTH + 16.0;
 const TOAST_HEIGHT: f32 = 92.0;
 const TOAST_GAP: f32 = 8.0;
 const TOAST_RADIUS: f32 = 12.0;
@@ -100,7 +102,7 @@ impl ToastState {
                     let mut a = Animation::new(0.0)
                         .duration(LEAVE_DURATION)
                         .easing(Easing::InOut);
-                    a.to(TOAST_WIDTH);
+                    a.to(TOAST_WINDOW_WIDTH);
                     toast.anim = a;
                     changed = true;
                 }
@@ -112,6 +114,7 @@ impl ToastState {
         }
 
         // удаляем ушедшие (dismiss из демона, чтобы не пушились снова)
+        let before = self.toasts.len();
         self.toasts.retain(|t| {
             let alive =
                 t.phase != Phase::Leaving || now.duration_since(t.phase_start) < LEAVE_DURATION;
@@ -120,6 +123,10 @@ impl ToastState {
             }
             alive
         });
+        // без этого окно не перерисуется и остаток карточки останется на экране
+        if self.toasts.len() != before {
+            changed = true;
+        }
 
         changed
     }
@@ -133,7 +140,7 @@ impl ToastState {
             }
         }
 
-        let mut anim = Animation::new(TOAST_WIDTH)
+        let mut anim = Animation::new(TOAST_WINDOW_WIDTH)
             .duration(ENTER_DURATION)
             .easing(Easing::Out);
         anim.to(0.0);
@@ -161,7 +168,7 @@ impl ToastState {
             let mut a = Animation::new(0.0)
                 .duration(LEAVE_DURATION)
                 .easing(Easing::InOut);
-            a.to(TOAST_WIDTH);
+            a.to(TOAST_WINDOW_WIDTH);
             toast.anim = a;
         }
     }
@@ -187,7 +194,7 @@ pub fn toast_view(_monitor: &Monitor) -> LayerWindow {
         .collect();
 
     LayerWindow::new()
-        .width(TOAST_WIDTH + 16.0)
+        .width(TOAST_WINDOW_WIDTH)
         .height(if open { state.window_height() } else { 1.0 })
         .anchor_vertical(Vertical::Top)
         .anchor_horizontal(Horizontal::Right)
