@@ -9,6 +9,7 @@ mod ipc;
 mod notifications;
 mod popup;
 mod state;
+mod temperature;
 mod theme;
 mod ui;
 mod wifi;
@@ -34,6 +35,7 @@ fn main() {
     drop(state::NotificationHistory::read());
     drop(notifications::ToastState::read());
     drop(state::ClipboardHistory::read());
+    drop(state::Temp::read());
 
     ipc::serve();
 

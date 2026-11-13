@@ -1,10 +1,11 @@
 use amane::{
-    Audio, Battery, Bluetooth, Button, Center, Color, Cpu, End, Layer, LayerWindow, Link, Margin,
-    Memory, Monitor, Network, Parent, Pointer, Rectangle, Row, Scroll, Service, Start, Text,
-    Vertical, Weight, Widget, Workspace, Workspaces, Zone, children,
+    Audio, Battery, Bluetooth, Button, Canvas, Cap, Center, Color, Cpu, End, Layer, LayerWindow,
+    Link, Margin, Memory, Monitor, Network, Parent, Path, Pointer, Rectangle, Row, Scroll, Service,
+    Shape, Stack, Start, Text, Vertical, Weight, Widget, Workspace, Workspaces, Zone, children,
+    shapes,
 };
 
-use crate::state::{Clock, KbLayout, Mixer, Popup, Temp, Ui, Vpn};
+use crate::state::{Clock, KbLayout, Mixer, Popup, Temp, Timer, Ui, Vpn, display_seconds};
 use crate::theme::{Theme, theme};
 
 pub const GAP_TOP: i32 = 6;
@@ -15,6 +16,15 @@ const ICON_SIZE: f32 = 16.0;
 const TEXT_SIZE: f32 = 16.0;
 const WS_ICON_SIZE_INACTIVE: f32 = 16.0;
 const WS_ICON_SIZE_ACTIVE: f32 = 16.0;
+const TIMER_CHIP_WIDTH: f32 = 48.0;
+const TIMER_CHIP_HEIGHT: f32 = 24.0;
+const TIMER_STROKE: f32 = 2.0;
+const TIMER_INSET: f32 = 1.0;
+// обводка 2px центрируется на линии: радиус пилюли 12 минус отступ 1
+const TIMER_RADIUS: f32 = TIMER_CHIP_HEIGHT / 2.0 - TIMER_INSET;
+const TIMER_STRAIGHT: f32 = TIMER_CHIP_WIDTH - 2.0 * TIMER_INSET - 2.0 * TIMER_RADIUS;
+const TIMER_HALF_ARC: f32 = std::f32::consts::PI * TIMER_RADIUS;
+const TIMER_PERIMETER: f32 = 2.0 * TIMER_STRAIGHT + 2.0 * TIMER_HALF_ARC;
 
 // иконки рабочих столов из waybar: "1".."9"
 const WORKSPACE_ICONS: [&str; 9] = [
@@ -145,7 +155,7 @@ fn workspace_button(theme: &Theme, ui: &Ui, workspace: &Workspace) -> Rectangle 
         .child(Text::new(glyph).size(icon_size).color(color).tight())
 }
 
-// ---------------------------------------------------------------- центр: время
+// ---------------------------------------------------------------- центр: таймер и время
 
 fn center(theme: &Theme, ui: &Ui, monitor: &Monitor, width: f32) -> Rectangle {
     let clock = Clock::read();
@@ -177,11 +187,130 @@ fn center(theme: &Theme, ui: &Ui, monitor: &Monitor, width: f32) -> Rectangle {
                 .weight(Weight::Bold),
         );
 
+    // слоты по бокам одинаковой ширины: часы не сдвигаются при появлении таймера
+    let row = Row::new(children![
+        timer(theme).unwrap_or_else(|| Rectangle::new().width(TIMER_CHIP_WIDTH).height(24.0)),
+        chip,
+        Rectangle::new().width(TIMER_CHIP_WIDTH).height(24.0),
+    ])
+    .gap(6.0)
+    .align(Center);
+
     Rectangle::new()
         .width(width)
         .height(Parent)
         .align_child(Center, Center)
-        .child(chip)
+        .child(row)
+}
+
+// остаток таймера слева от часов; сброшенный таймер не показываем
+fn timer(theme: &Theme) -> Option<Rectangle> {
+    // состояние читаем один раз и отпускаем guard до сборки виджетов
+    let timer = Timer::read();
+    let remaining = timer.remaining();
+    let running = timer.running();
+    let total = timer.total();
+    drop(timer);
+
+    if !running && remaining == total {
+        return None;
+    }
+
+    let seconds = display_seconds(remaining);
+
+    // рамка-пилюля тает против часовой стрелки от верхней середины
+    let fraction = remaining.as_secs_f32() / total.as_secs_f32();
+
+    let mut budget = fraction * TIMER_PERIMETER;
+    let mut path = Path::new().move_to(TIMER_CHIP_WIDTH / 2.0, TIMER_INSET);
+
+    // верхняя правая половина
+    let length = budget.min(TIMER_STRAIGHT / 2.0);
+    path = path.line_to(TIMER_CHIP_WIDTH / 2.0 + length, TIMER_INSET);
+    budget -= length;
+
+    // правый полукруг
+    let length = budget.min(TIMER_HALF_ARC);
+    if length > 0.0 {
+        path = path.arc(
+            TIMER_CHIP_WIDTH - TIMER_INSET - TIMER_RADIUS,
+            TIMER_CHIP_HEIGHT / 2.0,
+            TIMER_RADIUS,
+            0.0,
+            180.0 * length / TIMER_HALF_ARC,
+        );
+        budget -= length;
+    }
+
+    // нижняя сторона
+    let length = budget.min(TIMER_STRAIGHT);
+    if length > 0.0 {
+        path = path.line_to(
+            TIMER_CHIP_WIDTH - TIMER_INSET - TIMER_RADIUS - length,
+            TIMER_CHIP_HEIGHT - TIMER_INSET,
+        );
+        budget -= length;
+    }
+
+    // левый полукруг
+    let length = budget.min(TIMER_HALF_ARC);
+    if length > 0.0 {
+        path = path.arc(
+            TIMER_INSET + TIMER_RADIUS,
+            TIMER_CHIP_HEIGHT / 2.0,
+            TIMER_RADIUS,
+            180.0,
+            180.0 * length / TIMER_HALF_ARC,
+        );
+        budget -= length;
+    }
+
+    // верхняя левая половина
+    let length = budget.min(TIMER_STRAIGHT / 2.0);
+    if length > 0.0 {
+        path = path.line_to(TIMER_INSET + TIMER_RADIUS + length, TIMER_INSET);
+    }
+
+    // пустой путь с круглым капом нарисовал бы точку, поэтому при нуле прогресса его нет
+    let mut shapes: Vec<Box<dyn Shape>> = shapes![];
+    if fraction > 0.0 {
+        shapes.push(Box::new(
+            path.stroke(TIMER_STROKE, theme.accent).cap(Cap::Round),
+        ));
+    }
+
+    let track = Rectangle::new()
+        .width(TIMER_CHIP_WIDTH)
+        .height(TIMER_CHIP_HEIGHT)
+        .radius(TIMER_CHIP_HEIGHT / 2.0)
+        .border(TIMER_STROKE, theme.border);
+
+    let progress = Canvas::new()
+        .width(TIMER_CHIP_WIDTH)
+        .height(TIMER_CHIP_HEIGHT)
+        .shapes(shapes);
+
+    let text = Rectangle::new()
+        .width(Parent)
+        .height(Parent)
+        .align_child(Center, Center)
+        .child(
+            Text::new(format!("{:02}:{:02}", seconds / 60, seconds % 60))
+                .size(TEXT_SIZE - 4.0)
+                .color(theme.text)
+                .weight(Weight::Bold),
+        );
+
+    Some(
+        Rectangle::new()
+            .width(TIMER_CHIP_WIDTH)
+            .height(TIMER_CHIP_HEIGHT)
+            .child(
+                Stack::new(children![track, progress, text])
+                    .width(TIMER_CHIP_WIDTH)
+                    .height(TIMER_CHIP_HEIGHT),
+            ),
+    )
 }
 
 // ---------------------------------------------------------------- справа
@@ -224,12 +353,14 @@ fn right(theme: &Theme, ui: &Ui, monitor: &Monitor, width: f32) -> Row {
 
     let celsius = Temp::read().celsius;
 
-    items.push(Box::new(metric(
+    let color = if celsius >= 80 { theme.red } else { theme.text };
+
+    items.push(Box::new(chip(
         theme,
         ui,
-        "",
-        format!("{celsius}°C"),
-        celsius >= 80,
+        Some("temperature"),
+        Some((Popup::Temperature, monitor)),
+        vec![Part::Value(format!("{celsius}°C"), color)],
     )));
     items.push(Box::new(bluetooth(theme, ui, monitor)));
     if let Some(v) = vpn(theme, ui) {
@@ -411,7 +542,7 @@ fn wifi(theme: &Theme, ui: &Ui, monitor: &Monitor) -> Rectangle {
         match network.link() {
             Link::Offline => {
                 parts.push(Part::Icon("\u{f071}", theme.yellow));
-                parts.push(Part::Value(String::from("Disconnected"), theme.text));
+                // parts.push(Part::Value(String::from("Disconnected"), theme.text));
             }
             Link::Wired => parts.push(Part::Icon("\u{f0e0b}", theme.text)),
             Link::Wifi => parts.push(Part::Icon("\u{f1eb}", theme.text)),

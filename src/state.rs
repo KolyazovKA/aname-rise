@@ -13,6 +13,7 @@ use crate::clip_store::Store;
 
 pub const PASSWORD_INPUT: &str = "wifi-password";
 pub const CLIPBOARD_INPUT: &str = "clipboard-search";
+pub const TIMER_INPUT: &str = "timer-minutes";
 
 // ---------------------------------------------------------------- окна
 
@@ -25,6 +26,7 @@ pub enum Popup {
     Battery,
     Notifications,
     Clipboard,
+    Temperature,
 }
 
 // какое окно открыто и на каком мониторе, плюс мелкое состояние интерфейса
@@ -43,6 +45,8 @@ pub struct Ui {
     pub clip_query: String,
     pub clip_selected: usize,
     pub clip_top: usize,
+    // в поле минут календаря сейчас вводят
+    pub timer_editing: bool,
 }
 
 impl Service for Ui {
@@ -59,6 +63,7 @@ impl Service for Ui {
             clip_query: String::new(),
             clip_selected: 0,
             clip_top: 0,
+            timer_editing: false,
         }
     }
 
@@ -104,9 +109,11 @@ impl Ui {
         self.clip_query.clear();
         self.clip_selected = 0;
         self.clip_top = 0;
+        self.timer_editing = false;
 
         TextInput::set_text(PASSWORD_INPUT, "");
         TextInput::set_text(CLIPBOARD_INPUT, "");
+        TextInput::set_text(TIMER_INPUT, "");
     }
 
     pub fn set_hover(key: &str, inside: bool) {
@@ -306,6 +313,112 @@ pub fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
     era * 146_097 + doe - 719_468
 }
 
+// ---------------------------------------------------------------- таймер
+
+pub const TIMER_TOTAL: Duration = Duration::from_secs(25 * 60);
+
+// отсчёт по дедлайну: тики не копят погрешность, а окно перерисовывается только со сменой секунды
+pub struct Timer {
+    // выбранная длительность: от неё считаются остаток, кольцо и reset
+    total: Duration,
+    // остаток, пока таймер стоит
+    remaining: Duration,
+    // момент окончания, пока идёт
+    deadline: Option<Instant>,
+    // последняя показанная секунда: update() молчит, пока она не сменилась
+    shown: u64,
+}
+
+impl Service for Timer {
+    fn new() -> Self {
+        Self {
+            total: TIMER_TOTAL,
+            remaining: TIMER_TOTAL,
+            deadline: None,
+            shown: display_seconds(TIMER_TOTAL),
+        }
+    }
+
+    fn interval() -> Duration {
+        Duration::from_millis(100)
+    }
+
+    fn update(&mut self) -> bool {
+        // дедлайн прошёл: останавливаемся на нуле
+        let now = Instant::now();
+        let expired = self.deadline.is_some_and(|deadline| now >= deadline);
+
+        if expired {
+            self.deadline = None;
+            self.remaining = Duration::ZERO;
+        }
+
+        let shown = display_seconds(self.remaining());
+
+        if shown == self.shown {
+            return false;
+        }
+
+        self.shown = shown;
+
+        true
+    }
+}
+
+impl Timer {
+    // play/pause одной кнопкой; на нуле запуск не начинается — нужен reset
+    pub fn toggle() {
+        let mut timer = Self::write();
+
+        if let Some(deadline) = timer.deadline {
+            timer.remaining = deadline.saturating_duration_since(Instant::now());
+            timer.deadline = None;
+        } else if timer.remaining > Duration::ZERO {
+            timer.deadline = Some(Instant::now() + timer.remaining);
+        }
+    }
+
+    pub fn reset() {
+        let mut timer = Self::write();
+
+        timer.remaining = timer.total;
+        timer.deadline = None;
+        timer.shown = display_seconds(timer.total);
+    }
+
+    // смена длительности сбрасывает и останавливает таймер
+    pub fn set_minutes(minutes: u32) {
+        let total = Duration::from_secs(u64::from(minutes.clamp(1, 99)) * 60);
+        let mut timer = Self::write();
+
+        timer.total = total;
+        timer.remaining = total;
+        timer.deadline = None;
+        timer.shown = display_seconds(total);
+    }
+
+    pub fn total(&self) -> Duration {
+        self.total
+    }
+
+    // остаток считается от текущего времени, поэтому задержки отрисовки его не сдвигают
+    pub fn remaining(&self) -> Duration {
+        match self.deadline {
+            Some(deadline) => deadline.saturating_duration_since(Instant::now()),
+            None => self.remaining,
+        }
+    }
+
+    pub fn running(&self) -> bool {
+        self.deadline.is_some()
+    }
+}
+
+// секунды для показа с округлением вверх: 25:00 не превращается в 24:59 сразу после старта
+pub fn display_seconds(left: Duration) -> u64 {
+    left.as_secs() + u64::from(left.subsec_nanos() > 0)
+}
+
 // ---------------------------------------------------------------- раскладка
 
 pub struct KbLayout {
@@ -347,9 +460,14 @@ fn read_layout() -> usize {
 
 // ---------------------------------------------------------------- температура
 
+// 60 замеров по 5 с — последние 5 минут
+const TEMP_HISTORY_MAX: usize = 60;
+
 pub struct Temp {
     pub celsius: i32,
     path: Option<PathBuf>,
+    // старые первыми, новые в конце
+    history: Vec<i32>,
 }
 
 impl Service for Temp {
@@ -358,7 +476,11 @@ impl Service for Temp {
 
         let celsius = path.as_ref().map_or(0, read_temp);
 
-        Self { celsius, path }
+        Self {
+            celsius,
+            path,
+            history: vec![celsius],
+        }
     }
 
     fn interval() -> Duration {
@@ -370,12 +492,33 @@ impl Service for Temp {
             return false;
         };
 
-        let now = read_temp(path);
-        let changed = now != self.celsius;
+        self.record(read_temp(path));
 
-        self.celsius = now;
+        // график обновляется на каждом тике, пока окно открыто
+        true
+    }
+}
 
-        changed
+impl Temp {
+    fn record(&mut self, value: i32) {
+        self.celsius = value;
+        self.history.push(value);
+
+        if self.history.len() > TEMP_HISTORY_MAX {
+            self.history.remove(0);
+        }
+    }
+
+    pub fn history(&self) -> &[i32] {
+        &self.history
+    }
+
+    pub fn min(&self) -> i32 {
+        self.history.iter().copied().min().unwrap_or(self.celsius)
+    }
+
+    pub fn max(&self) -> i32 {
+        self.history.iter().copied().max().unwrap_or(self.celsius)
     }
 }
 
@@ -1011,4 +1154,77 @@ fn copy(text: String) {
             let _ = child.wait();
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn display_seconds_rounds_up() {
+        assert_eq!(display_seconds(Duration::from_secs(1500)), 1500);
+        assert_eq!(display_seconds(Duration::from_millis(1_499_001)), 1500);
+        assert_eq!(display_seconds(Duration::from_secs(1499)), 1499);
+        assert_eq!(display_seconds(Duration::ZERO), 0);
+        assert_eq!(display_seconds(Duration::from_millis(1)), 1);
+    }
+
+    #[test]
+    fn set_minutes_clamps_and_resets() {
+        Timer::set_minutes(0);
+        assert_eq!(Timer::read().total(), Duration::from_secs(60));
+
+        Timer::set_minutes(100);
+        assert_eq!(Timer::read().total(), Duration::from_secs(99 * 60));
+
+        Timer::set_minutes(45);
+        assert!(!Timer::read().running());
+        assert_eq!(Timer::read().remaining(), Duration::from_secs(45 * 60));
+        assert_eq!(Timer::read().total(), Duration::from_secs(45 * 60));
+
+        Timer::reset();
+        assert_eq!(Timer::read().remaining(), Duration::from_secs(45 * 60));
+    }
+
+    fn temp_with(history: Vec<i32>) -> Temp {
+        Temp {
+            celsius: history.last().copied().unwrap_or(0),
+            path: None,
+            history,
+        }
+    }
+
+    #[test]
+    fn temp_history_keeps_last_60() {
+        let mut temp = temp_with(vec![0]);
+
+        for value in 1..=61 {
+            temp.record(value);
+        }
+
+        assert_eq!(temp.history().len(), TEMP_HISTORY_MAX);
+        // первый замер (0) и второй (1) вытеснены
+        assert_eq!(temp.history()[0], 2);
+        assert_eq!(temp.history()[TEMP_HISTORY_MAX - 1], 61);
+    }
+
+    #[test]
+    fn temp_min_max_from_history() {
+        let temp = temp_with(vec![40, 55, 47]);
+
+        assert_eq!(temp.min(), 40);
+        assert_eq!(temp.max(), 55);
+    }
+
+    #[test]
+    fn temp_min_max_fall_back_to_celsius() {
+        let temp = Temp {
+            celsius: 42,
+            path: None,
+            history: Vec::new(),
+        };
+
+        assert_eq!(temp.min(), 42);
+        assert_eq!(temp.max(), 42);
+    }
 }

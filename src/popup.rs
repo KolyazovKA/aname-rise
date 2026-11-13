@@ -1,22 +1,24 @@
 use amane::{
     Color, Full, Horizontal, Key, Keyboard, Layer, LayerWindow, Margin, Monitor, Parent, Rectangle,
-    Service, Vertical, Widget, Zone,
+    Service, TextInput, Vertical, Widget, Zone,
 };
 
-use crate::state::{Popup, Ui};
+use crate::state::{Popup, TIMER_INPUT, Ui};
 use crate::theme::{Theme, theme};
-use crate::{audio, battery, bluetooth, calendar, clipboard, wifi};
+use crate::{audio, battery, bluetooth, calendar, clipboard, temperature, wifi};
 
 // ширина и высота окна
 pub fn size(kind: Popup) -> (f32, f32) {
     match kind {
-        Popup::Calendar => (308.0, 316.0),
+        // рамка и padding + календарь + зазор + разделитель + зазор + таймер
+        Popup::Calendar => (26.0 + 282.0 + 16.0 + 1.0 + 16.0 + 120.0, 316.0),
         Popup::Bluetooth => (344.0, 420.0),
         Popup::Wifi => (344.0, 460.0),
         Popup::Audio => (368.0, 480.0),
         Popup::Battery => (320.0, 372.0),
         Popup::Notifications => (344.0, 480.0),
         Popup::Clipboard => clipboard::SIZE,
+        Popup::Temperature => (320.0, 220.0),
     }
 }
 
@@ -67,8 +69,10 @@ pub fn view(monitor: &Monitor) -> LayerWindow {
 
     let (width, height) = size(kind);
 
-    // пока вводят пароль или ищут в буфере, окно забирает клавиатуру целиком
-    let typing = (kind == Popup::Wifi && ui.password_for.is_some()) || kind == Popup::Clipboard;
+    // пока вводят пароль, ищут в буфере или набирают минуты, окно забирает клавиатуру целиком
+    let typing = (kind == Popup::Wifi && ui.password_for.is_some())
+        || kind == Popup::Clipboard
+        || (kind == Popup::Calendar && ui.timer_editing);
 
     let keyboard = if open && typing {
         Keyboard::Exclusive
@@ -89,6 +93,7 @@ pub fn view(monitor: &Monitor) -> LayerWindow {
             Popup::Battery => battery::view(&theme, width, height),
             Popup::Notifications => crate::notifications::center_view(&theme, &ui, width, height),
             Popup::Clipboard => clipboard::view(&theme, &ui, width, height),
+            Popup::Temperature => temperature::view(&theme, &ui, width, height),
         }
     };
 
@@ -114,7 +119,17 @@ pub fn view(monitor: &Monitor) -> LayerWindow {
         .space(Zone::Respect)
         .keyboard(keyboard)
         .on_key(|key: Key| match key {
-            Key::Escape => Ui::close_all(),
+            Key::Escape => {
+                // читаем до write(): иначе взаимоблокировка
+                let editing = Ui::read().timer_editing;
+
+                if editing {
+                    TextInput::set_text(TIMER_INPUT, "");
+                    Ui::write().timer_editing = false;
+                } else {
+                    Ui::close_all();
+                }
+            }
             // имена Key::Up и Key::Down сверить с SDK
             Key::Up => Ui::clip_move(-1),
             Key::Down => Ui::clip_move(1),
@@ -124,5 +139,3 @@ pub fn view(monitor: &Monitor) -> LayerWindow {
         .visible(open)
         .child(content)
 }
-
-
